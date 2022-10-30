@@ -12,6 +12,7 @@ use Illuminate\Queue\CallQueuedClosure;
 use Illuminate\Queue\Queue as LaravelQueue;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
+use Pandawa\Component\Bus\Serializer\NativeSerializer;
 use Pandawa\Component\Bus\Stamp\MessageNameStamp;
 use Pandawa\Component\Bus\Stamp\SerializerStamp;
 use Pandawa\Component\Queue\Handler\CallQueuedListener;
@@ -24,7 +25,6 @@ use Pandawa\Component\Queue\Stamp\RetryUntilStamp;
 use Pandawa\Component\Queue\Stamp\TimeoutStamp;
 use Pandawa\Component\Queue\Stamp\TriesStamp;
 use Pandawa\Contracts\Bus\Envelope;
-use Symfony\Component\Serializer\Serializer;
 use Symfony\Component\Serializer\SerializerInterface;
 
 
@@ -65,7 +65,7 @@ trait Queue
 
         $encrypted = $this->jobShouldBeEncrypted($envelope) && $this->container->bound(Encrypter::class);
         $message = $encrypted
-            ? $this->container[Encrypter::class]->encrypt(serialize($envelope->message))
+            ? $this->container[Encrypter::class]->encrypt(serialize($this->normalize($envelope)))
             : $this->normalize($envelope);
 
         return [
@@ -81,21 +81,6 @@ trait Queue
 
     protected function normalize(Envelope $envelope): array
     {
-        try {
-            return [
-                'type'       => 'serializer',
-                'serialized' => $this->normalizeFromSerializer($envelope),
-            ];
-        } catch (\Exception $e) {
-            return [
-                'type'       => 'native',
-                'serialized' => serialize($envelope->message),
-            ];
-        }
-    }
-
-    protected function normalizeFromSerializer(Envelope $envelope): array
-    {
         $serializer = $this->makeSerializer($envelope);
 
         if ($envelope->message instanceof CallQueuedListener) {
@@ -107,7 +92,7 @@ trait Queue
                         if ($value instanceof Envelope) {
                             return [
                                 '__normalized_class' => get_class($value->message),
-                                'payload'            => $this->normalizeFromSerializer($value),
+                                'payload'            => $this->normalize($value),
                             ];
                         }
 
@@ -285,6 +270,6 @@ trait Queue
 
     protected function getSerializer(Envelope $envelope): string
     {
-        return $envelope->last(SerializerStamp::class)->serializer ?? Serializer::class;
+        return $envelope->last(SerializerStamp::class)?->serializer ?? NativeSerializer::class;
     }
 }
